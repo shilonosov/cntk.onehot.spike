@@ -23,27 +23,27 @@ namespace cntk.onehot.spike
 
         static void Main(string[] args)
         {
+            const bool useSparse = false;
+
             const int vectorSize = 300;
             const int vocabularySize = 6000;
             const float xMax = 100f;
             const float alphaOrder = 0.75f;
-            const int imagimableBatchSize = 2;
+            const int imagimableBatchSize = 1;
 
-            var device = DeviceDescriptor.CPUDevice;
+            var device = DeviceDescriptor.GPUDevice(0);
 
-            var scalarDimension = new[] { 1, imagimableBatchSize };
+            var scalarDimension = new[] { imagimableBatchSize, 1 };
             var matrixSize = new[] {vectorSize, vocabularySize};
-            var vectorDimension = new[] { 1, vocabularySize};
+            var vectorDimension = new[] { vocabularySize, 1 };
 
             var iterationScalarShape = NDShape.CreateNDShape(scalarDimension);
             var iterationMatrixShape = NDShape.CreateNDShape(matrixSize);
             var iterationVectorShape = NDShape.CreateNDShape(vectorDimension);
 
-            var oneHotShape = NDShape.CreateNDShape(new[] {vocabularySize, imagimableBatchSize });
-
-            var coOccurrences = Variable.InputVariable(new int[] { 1, imagimableBatchSize }, DataType.Float, "coOccurrences - " + vocabularySize, null, false);
-            var columns = Variable.InputVariable(new int[] { imagimableBatchSize }, DataType.Float, "columns - " + vocabularySize, null, false);
-            var rows = Variable.InputVariable(new int[] { imagimableBatchSize }, DataType.Float, "rows - " + vocabularySize, null, false);
+            var coOccurrences = Variable.InputVariable(iterationScalarShape, DataType.Float, "coOccurrences - " + vocabularySize, null, false);
+            var columns = Variable.InputVariable(iterationScalarShape, DataType.Float, "columns - " + vocabularySize, null, false);
+            var rows = Variable.InputVariable(iterationScalarShape, DataType.Float, "rows - " + vocabularySize, null, false);
 
             var mainVectors = new Parameter(iterationMatrixShape, DataType.Float, 0d, device);
             PrintDim(mainVectors, nameof(mainVectors));
@@ -68,9 +68,9 @@ namespace cntk.onehot.spike
             var weight = CNTKLib.ElementMin(one, pow, "min");
             PrintDim(weight, nameof(weight));
 
-            var oneHotRow = CNTKLib.OneHotOp(rows, vocabularySize, true, new Axis(0));
+            var oneHotRow = CNTKLib.OneHotOp(rows, vocabularySize, useSparse, new Axis(0));
             PrintDim(oneHotRow, nameof(oneHotRow));
-            var oneHotColumn = CNTKLib.OneHotOp(columns, vocabularySize, true, new Axis(0));
+            var oneHotColumn = CNTKLib.OneHotOp(columns, vocabularySize, useSparse, new Axis(0));
             PrintDim(oneHotColumn, nameof(oneHotColumn));
 
             var mainVector = CNTKLib.Alias(CNTKLib.Times(mainVectors, oneHotColumn));
@@ -79,17 +79,17 @@ namespace cntk.onehot.spike
             var contextVector = CNTKLib.Alias(CNTKLib.Times(contextVectors, oneHotRow));
             PrintDim(contextVector, nameof(contextVector));
 
-            var mainBias = CNTKLib.Alias(CNTKLib.Times(mainBiases, oneHotColumn));
+            var mainBias = CNTKLib.Alias(CNTKLib.TransposeTimes(mainBiases, oneHotColumn));
             PrintDim(mainBias, nameof(mainBias));
 
-            var contextBias = CNTKLib.Alias(CNTKLib.Times(contextBiases, oneHotRow));
+            var contextBias = CNTKLib.Alias(CNTKLib.TransposeTimes(contextBiases, oneHotRow));
             PrintDim(contextBias, nameof(contextBias));
 
             var model = CNTKLib.ElementTimes(mainVector, contextVector);
             PrintDim(model, "CNTKLib.ElementTimes(mainVector, contextVector)");
 
             model = CNTKLib.ReduceSum(model, new Axis(0));
-            PrintDim(model, "CNTKLib.ReduceSum(model, new Axis(1))");
+            PrintDim(model, "CNTKLib.ReduceSum(model, new Axis(0))");
 
             model = CNTKLib.Plus(model, mainBias);
             PrintDim(model, "CNTKLib.Plus(model, mainBias)");
@@ -109,16 +109,9 @@ namespace cntk.onehot.spike
             model = CNTKLib.ReduceSum(model, new Axis(1));
             PrintDim(model, "CNTKLib.ReduceSum(model, new Axis(1))");
 
-            var thisBatchShape = NDShape.CreateNDShape(new[] {1, imagimableBatchSize});
-
+            var thisBatchShape = NDShape.CreateNDShape(new[] {imagimableBatchSize});
 
             var parameterVector = new ParameterVector(model.Parameters().ToList());
-
-            //var learner = CNTKLib.AdamLearner(
-            //    parameterVector,
-            //    new TrainingParameterScheduleDouble(0.1, (uint) (vocabularySize * vocabularySize)),
-            //    new TrainingParameterScheduleDouble(0.9, (uint) (vocabularySize * vocabularySize)),
-            //    false);
 
             var learner = CNTKLib.SGDLearner(
                 parameterVector,
@@ -133,9 +126,10 @@ namespace cntk.onehot.spike
             var fColumns = GetRandomInts(count, 0, vocabularySize).ToArray();
             var fRows = GetRandomInts(count, 0, vocabularySize).ToArray();
 
+            const int batchSize = 10000;
             var all = floats.Zip(fColumns, (f, c) => (f: f, c: c)).Zip(fRows, (tuple, r) => (tuple.c, tuple.c, r))
                 .ToObservable()
-                .Buffer(10000)
+                .Buffer(batchSize)
                 .Select(x => (f: x.Select(y => y.Item1).ToArray(), c: x.Select(y => y.Item2).ToArray(), r: x.Select(y => y.Item3).ToArray()))
                 .ToArray()
                 .Wait();
@@ -144,7 +138,7 @@ namespace cntk.onehot.spike
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
-            for (var e = 0; e < 1; e++)
+            for (var e = 0; e < 3; e++)
             {
                 for (var i = 0; i < all.Length; i++)
                 {
