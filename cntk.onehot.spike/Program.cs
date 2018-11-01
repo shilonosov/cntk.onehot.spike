@@ -27,22 +27,23 @@ namespace cntk.onehot.spike
             const int vocabularySize = 6000;
             const float xMax = 100f;
             const float alphaOrder = 0.75f;
+            const int imagimableBatchSize = 2;
 
             var device = DeviceDescriptor.CPUDevice;
 
-            var scalarDimension = new[] {1, 1};
+            var scalarDimension = new[] { 1, imagimableBatchSize };
             var matrixSize = new[] {vectorSize, vocabularySize};
-            var vectorDimension = new[] {1, vocabularySize};
+            var vectorDimension = new[] { 1, vocabularySize};
 
             var iterationScalarShape = NDShape.CreateNDShape(scalarDimension);
             var iterationMatrixShape = NDShape.CreateNDShape(matrixSize);
             var iterationVectorShape = NDShape.CreateNDShape(vectorDimension);
 
-            var oneHotShape = NDShape.CreateNDShape(new[] {vocabularySize, 1});
+            var oneHotShape = NDShape.CreateNDShape(new[] {vocabularySize, imagimableBatchSize });
 
-            var coOccurrences = Variable.InputVariable(new int[] {1}, DataType.Float, "coOccurrences - " + vocabularySize, null, false);
-            var columns = Variable.InputVariable(new int[] {1}, DataType.Float, "columns - " + vocabularySize, null, false);
-            var rows = Variable.InputVariable(new int[] {1}, DataType.Float, "rows - " + vocabularySize, null, false);
+            var coOccurrences = Variable.InputVariable(new int[] { 1, imagimableBatchSize }, DataType.Float, "coOccurrences - " + vocabularySize, null, false);
+            var columns = Variable.InputVariable(new int[] { imagimableBatchSize }, DataType.Float, "columns - " + vocabularySize, null, false);
+            var rows = Variable.InputVariable(new int[] { imagimableBatchSize }, DataType.Float, "rows - " + vocabularySize, null, false);
 
             var mainVectors = new Parameter(iterationMatrixShape, DataType.Float, 0d, device);
             PrintDim(mainVectors, nameof(mainVectors));
@@ -73,28 +74,42 @@ namespace cntk.onehot.spike
             PrintDim(oneHotColumn, nameof(oneHotColumn));
 
             var mainVector = CNTKLib.Alias(CNTKLib.Times(mainVectors, oneHotColumn));
+
             PrintDim(mainVector, nameof(mainVector));
             var contextVector = CNTKLib.Alias(CNTKLib.Times(contextVectors, oneHotRow));
             PrintDim(contextVector, nameof(contextVector));
+
             var mainBias = CNTKLib.Alias(CNTKLib.Times(mainBiases, oneHotColumn));
             PrintDim(mainBias, nameof(mainBias));
+
             var contextBias = CNTKLib.Alias(CNTKLib.Times(contextBiases, oneHotRow));
             PrintDim(contextBias, nameof(contextBias));
 
-            var model = CNTKLib.TransposeTimes(mainVector, contextVector);
-            PrintDim(model, "CNTKLib.Times(mainVector, contextVector)");
+            var model = CNTKLib.ElementTimes(mainVector, contextVector);
+            PrintDim(model, "CNTKLib.ElementTimes(mainVector, contextVector)");
+
+            model = CNTKLib.ReduceSum(model, new Axis(0));
+            PrintDim(model, "CNTKLib.ReduceSum(model, new Axis(1))");
+
             model = CNTKLib.Plus(model, mainBias);
             PrintDim(model, "CNTKLib.Plus(model, mainBias)");
+
             model = CNTKLib.Plus(model, contextBias);
             PrintDim(model, "CNTKLib.Plus(model, contextBias)");
+
             model = CNTKLib.Minus(model, CNTKLib.Log(coOccurrences));
             PrintDim(model, "CNTKLib.Minus(model, CNTKLib.Log(coOccurrences))");
+
             model = CNTKLib.Square(model);
             PrintDim(model, "CNTKLib.Square(model)");
+
             model = CNTKLib.ElementTimes(model, weight);
             PrintDim(model, "CNTKLib.ElementTimes(model, weight)");
 
-            var thisBatchShape = NDShape.CreateNDShape(new[] {1});
+            model = CNTKLib.ReduceSum(model, new Axis(1));
+            PrintDim(model, "CNTKLib.ReduceSum(model, new Axis(1))");
+
+            var thisBatchShape = NDShape.CreateNDShape(new[] {1, imagimableBatchSize});
 
 
             var parameterVector = new ParameterVector(model.Parameters().ToList());
