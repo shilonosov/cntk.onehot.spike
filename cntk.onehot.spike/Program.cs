@@ -18,7 +18,7 @@ namespace cntk.onehot.spike
                 .Dimensions
                 .Select((x, i) => $"dim{i}: {x}");
             var dimensions = string.Join(", ", dimensionStrings);
-            Console.WriteLine($"{name}: {dimensions}");
+            Console.WriteLine($"{name}: {dimensions}, {nameof(source.Output.IsSparse)}: {source.Output.IsSparse}");
         }
 
         static void Main(string[] args)
@@ -30,7 +30,7 @@ namespace cntk.onehot.spike
 
             var device = DeviceDescriptor.CPUDevice;
 
-            var scalarDimension = new[] {1, 1 };
+            var scalarDimension = new[] {1, 1};
             var matrixSize = new[] {vectorSize, vocabularySize};
             var vectorDimension = new[] {1, vocabularySize};
 
@@ -40,24 +40,37 @@ namespace cntk.onehot.spike
 
             var oneHotShape = NDShape.CreateNDShape(new[] {vocabularySize, 1});
 
-            var coOccurrences = Variable.InputVariable(new int[] { 1 }, DataType.Float, "coOccurrences - " + vocabularySize, null, false);
-            var columns = Variable.InputVariable(new int[] { 1 }, DataType.Float, "columns - " + vocabularySize, null, false);
-            var rows = Variable.InputVariable(new int[]{1}, DataType.Float, "rows - " + vocabularySize, null, false);
+            var coOccurrences = Variable.InputVariable(new int[] {1}, DataType.Float, "coOccurrences - " + vocabularySize, null, false);
+            var columns = Variable.InputVariable(new int[] {1}, DataType.Float, "columns - " + vocabularySize, null, false);
+            var rows = Variable.InputVariable(new int[] {1}, DataType.Float, "rows - " + vocabularySize, null, false);
 
             var mainVectors = new Parameter(iterationMatrixShape, DataType.Float, 0d, device);
+            PrintDim(mainVectors, nameof(mainVectors));
             var contextVectors = new Parameter(iterationMatrixShape, DataType.Float, 0d, device);
+            PrintDim(contextVectors, nameof(contextVectors));
             var mainBiases = new Parameter(iterationVectorShape, DataType.Float, 0d, device);
+            PrintDim(mainBiases, nameof(mainBiases));
             var contextBiases = new Parameter(iterationVectorShape, DataType.Float, 0d, device);
+            PrintDim(contextBiases, nameof(contextBiases));
             var one = new Constant(iterationScalarShape, DataType.Float, 1d, device);
+            PrintDim(one, nameof(one));
             var xmax = new Constant(iterationScalarShape, DataType.Float, xMax, device);
+            PrintDim(xmax, nameof(xmax));
             var alpha = new Constant(iterationScalarShape, DataType.Float, alphaOrder, device);
+            PrintDim(alpha, nameof(alpha));
 
 
-            var weight = CNTKLib.ElementMin(one, CNTKLib.Pow(CNTKLib.ElementDivide(coOccurrences, xmax), alpha), "min");
+            var divide = CNTKLib.ElementDivide(coOccurrences, xmax);
+            PrintDim(divide, nameof(divide));
+            var pow = CNTKLib.Pow(divide, alpha);
+            PrintDim(pow, nameof(pow));
+            var weight = CNTKLib.ElementMin(one, pow, "min");
+            PrintDim(weight, nameof(weight));
 
             var oneHotRow = CNTKLib.OneHotOp(rows, vocabularySize, true, new Axis(0));
             PrintDim(oneHotRow, nameof(oneHotRow));
             var oneHotColumn = CNTKLib.OneHotOp(columns, vocabularySize, true, new Axis(0));
+            PrintDim(oneHotColumn, nameof(oneHotColumn));
 
             var mainVector = CNTKLib.Alias(CNTKLib.Times(mainVectors, oneHotColumn));
             PrintDim(mainVector, nameof(mainVector));
@@ -94,14 +107,13 @@ namespace cntk.onehot.spike
 
             var learner = CNTKLib.SGDLearner(
                 parameterVector,
-                new TrainingParameterScheduleDouble(0.1, (uint)(vocabularySize * vocabularySize)));
+                new TrainingParameterScheduleDouble(0.1, (uint) (vocabularySize * vocabularySize)));
 
             var learners = new LearnerVector() {learner};
             var trainer = CNTKLib.CreateTrainer(model, model, model, learners);
 
 
-
-            var count = (int)(vocabularySize*vocabularySize*0.2d*0.2d);
+            var count = (int) (vocabularySize * vocabularySize * 0.2d * 0.2d);
             var floats = GetRandomFloats(count).ToArray();
             var fColumns = GetRandomInts(count, 0, vocabularySize).ToArray();
             var fRows = GetRandomInts(count, 0, vocabularySize).ToArray();
@@ -143,6 +155,7 @@ namespace cntk.onehot.spike
                     }
                 }
             }
+
             stopwatch.Stop();
 
 
@@ -152,9 +165,9 @@ namespace cntk.onehot.spike
         public static IEnumerable<float> GetRandomFloats(int count)
         {
             var random = new Random();
-            for(var i = 0; i < count; ++i)
+            for (var i = 0; i < count; ++i)
             {
-                yield return (float)random.NextDouble();
+                yield return (float) random.NextDouble();
             }
         }
 
@@ -163,7 +176,7 @@ namespace cntk.onehot.spike
             var random = new Random();
             for (var i = 0; i < count; ++i)
             {
-                yield return (float)random.Next(min, max);
+                yield return (float) random.Next(min, max);
             }
         }
     }
